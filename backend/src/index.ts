@@ -242,6 +242,145 @@ app.get("/api/retiros_medicamentos", authMiddleware, async (req: Request, res: R
 });
 
 /* ============================================
+   ============ TRANSFERENCIA =================
+   ============================================ */
+
+app.post("/api/storage-principal/transfer", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id, cantidad } = req.body;
+
+    const principalResult = await pool.query("SELECT * FROM storage_principal WHERE id = $1", [id]);
+
+    if (principalResult.rows.length === 0)
+      return res.status(404).json({ error: "Producto no encontrado" });
+
+    const producto = principalResult.rows[0];
+
+    if (producto.cantidad < cantidad)
+      return res.status(400).json({ error: "Cantidad insuficiente" });
+
+    await pool.query("UPDATE storage_principal SET cantidad = cantidad - $1 WHERE id = $2", [
+      cantidad, id,
+    ]);
+
+    const secundarioResult = await pool.query("SELECT * FROM storage_secundario WHERE nombre = $1", [
+      producto.nombre,
+    ]);
+
+    if (secundarioResult.rows.length > 0) {
+      await pool.query(
+        "UPDATE storage_secundario SET cantidad = cantidad + $1 WHERE nombre = $2",
+        [cantidad, producto.nombre]
+      );
+    } else {
+      await pool.query(
+        "INSERT INTO storage_secundario (nombre, cantidad, categoria) VALUES ($1, $2, $3)",
+        [producto.nombre, cantidad, producto.categoria]
+      );
+    }
+
+    await pool.query(
+      "INSERT INTO transferencias (nombre_producto, cantidad, categoria) VALUES ($1, $2, $3)",
+      [producto.nombre, cantidad, producto.categoria]
+    );
+
+    res.json({ message: "Transferencia realizada correctamente" });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error al realizar transferencia" });
+  }
+});
+
+/* ============================================
+   ============ GET TRANSFERENCIAS ============
+   ============================================ */
+
+app.get("/api/transferencias", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query("SELECT * FROM transferencias ORDER BY fecha_transferencia DESC");
+    res.json(result.rows);
+  } catch {
+    res.status(500).json({ error: "Error al obtener transferencias" });
+  }
+});
+
+
+/* ============================================
+   ======== POST RETIRO DE MEDICAMENTOS ========
+   ============================================ */
+
+app.post("/api/retiros_medicamentos", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { medicamento_id, cantidad_retirada, nota } = req.body;
+
+    const medResult = await pool.query("SELECT * FROM medicamentos WHERE id = $1", [medicamento_id]);
+
+    if (!medResult.rows.length)
+      return res.status(404).json({ error: "Medicamento no encontrado" });
+
+    const medicamento = medResult.rows[0];
+
+    if (medicamento.cantidad < cantidad_retirada)
+      return res.status(400).json({ error: "Cantidad insuficiente" });
+
+    await pool.query(
+      "UPDATE medicamentos SET cantidad = cantidad - $1 WHERE id = $2",
+      [cantidad_retirada, medicamento_id]
+    );
+
+    await pool.query(
+      "INSERT INTO retiros_medicamentos (medicamento_id, nombre_medicamento, lote, cantidad_retirada, nota) VALUES ($1, $2, $3, $4, $5)",
+      [medicamento.id, medicamento.nombre, medicamento.lote, cantidad_retirada, nota]
+    );
+
+    res.json({ message: "Retiro registrado correctamente" });
+
+  } catch {
+    res.status(500).json({ error: "Error al registrar retiro" });
+  }
+});
+
+
+
+/* ============================================
+   ============ ALERTAS AUTOMÁTICAS ============
+   ============================================ */
+
+app.get("/api/alertas", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const hoy = new Date();
+    const diasAviso = 30;
+    const fechaLimite = new Date();
+    fechaLimite.setDate(hoy.getDate() + diasAviso);
+
+    const result = await pool.query("SELECT * FROM medicamentos");
+
+    const alertas = result.rows.map(med => {
+      const expDate = new Date(med.fecha_expiracion);
+
+      if (expDate < hoy)
+        return { tipo: "expirado", mensaje: `⚠️ El medicamento ${med.nombre} lote ${med.lote} ya está vencido.` };
+
+      if (expDate <= fechaLimite)
+        return { tipo: "por_vencer", mensaje: `⏳ El medicamento ${med.nombre} lote ${med.lote} vence pronto (${med.fecha_expiracion}).` };
+
+      if (med.cantidad < med.stock_minimo)
+        return { tipo: "bajo_stock", mensaje: `📉 Stock bajo de ${med.nombre}. Quedan ${med.cantidad} y el mínimo es ${med.stock_minimo}.` };
+
+      return null;
+    }).filter(a => a !== null);
+
+    res.json(alertas);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al generar alertas" });
+  }
+});
+
+
+/* ============================================
    ============== HEALTH CHECK =================
    ============================================ */
 

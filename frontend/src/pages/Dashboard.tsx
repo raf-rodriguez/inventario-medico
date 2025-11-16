@@ -88,11 +88,8 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-  // Esperar hasta que AuthContext cargue el user y token
-  if (user) {
     loadData();
-  }
-}, [user]);
+  }, []);
 
   async function loadData() {
     try {
