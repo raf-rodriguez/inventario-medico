@@ -242,6 +242,33 @@ app.get("/api/retiros_medicamentos", authMiddleware, async (req: Request, res: R
 });
 
 /* ============================================
+   ============ EDITAR MEDICAMENTO =============
+   ============================================ */
+
+app.put("/api/medicamentos/:id", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { nombre, cantidad, lote, fecha_expiracion } = req.body;
+
+    const result = await pool.query(
+      "UPDATE medicamentos SET nombre = $1, cantidad = $2, lote = $3, fecha_expiracion = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5 RETURNING *",
+      [nombre, cantidad, lote, fecha_expiracion, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Medicamento no encontrado" });
+    }
+
+    res.json({ message: "Medicamento actualizado", data: result.rows[0] });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error al editar medicamento" });
+  }
+});
+
+
+/* ============================================
    ============ TRANSFERENCIA =================
    ============================================ */
 
