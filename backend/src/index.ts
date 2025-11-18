@@ -305,6 +305,28 @@ app.get("/api/transferencias", authMiddleware, async (req: Request, res: Respons
   }
 });
 
+/* ============================================
+   ============ AGREGAR MEDICAMENTO ============
+   ============================================ */
+
+app.post("/api/medicamentos", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { nombre, cantidad, lote, fecha_expiracion } = req.body;
+
+    const result = await pool.query(
+      "INSERT INTO medicamentos (nombre, cantidad, lote, fecha_expiracion) VALUES ($1, $2, $3, $4) RETURNING *",
+      [nombre, cantidad, lote, fecha_expiracion]
+    );
+
+    res.status(201).json({ message: "Medicamento agregado", data: result.rows[0] });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error al agregar medicamento" });
+  }
+});
+
+
 
 /* ============================================
    ======== POST RETIRO DE MEDICAMENTOS ========
